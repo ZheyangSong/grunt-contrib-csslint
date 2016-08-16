@@ -34,10 +34,6 @@ module.exports = function(grunt) {
     // merge external options with options specified in gruntfile
     options = _.assign(options, externalOptions);
 
-    // if we have disabled explicitly unspecified rules
-    var defaultDisabled = options['*'] === false;
-    delete options['*'];
-
     var ruleset = csslint.getRuleset();
 
     // treat rules as ignored
@@ -55,7 +51,7 @@ module.exports = function(grunt) {
       ruleset[rule] = 2;
     });
 
-    var hadErrors = 0;
+    var hadErrors = false;
 
     this.filesSrc.forEach(function(filepath) {
       var file = grunt.file.read(filepath),
@@ -94,7 +90,7 @@ module.exports = function(grunt) {
               offenderMessage = chalk.yellow('GENERAL');
             }
 
-            if (!options.quiet || options.quiet && message.type === 'error') {
+            if (!options.quiet && !options.quiet_all || options.quiet && message.type === 'error' && !options.quiet_all) {
               grunt.log.writeln(chalk.red('[') + offenderMessage + chalk.red(']'));
               grunt.log[ message.type === 'error' ? 'error' : 'writeln' ](
                 message.type.toUpperCase() + ': ' +
@@ -149,6 +145,7 @@ module.exports = function(grunt) {
     if (hadErrors) {
       return false;
     }
+    
     grunt.log.ok(this.filesSrc.length + grunt.util.pluralize(this.filesSrc.length, ' file/ files') + ' lint free.');
   });
 };

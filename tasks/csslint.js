@@ -38,20 +38,25 @@ module.exports = function(grunt) {
     var defaultDisabled = options['*'] === false;
     delete options['*'];
 
-    csslint.getRules().forEach(function(rule) {
-      if (options[rule.id] || !defaultDisabled) {
-        ruleset[rule.id] = 1;
-      }
+    var ruleset = csslint.getRuleset();
+
+    // treat rules as ignored
+    options.ignore && options.ignore.forEach(function(rule) {
+      ruleset[rule] = 0;
     });
 
-    for (var rule in options) {
-      if (!options[rule]) {
-        delete ruleset[rule];
-      } else {
-        ruleset[rule] = options[rule];
-      }
-    }
+    // treat rules as warning
+    options.warnings && options.warnings.forEach(function(rule) {
+      ruleset[rule] = 1;
+    });
+
+    // treat rules as error
+    options.errors && options.errors.forEach(function(rule) {
+      ruleset[rule] = 2;
+    });
+
     var hadErrors = 0;
+
     this.filesSrc.forEach(function(filepath) {
       var file = grunt.file.read(filepath),
         message = 'Linting ' + chalk.cyan(filepath) + '...',
@@ -60,44 +65,49 @@ module.exports = function(grunt) {
       // skip empty files
       if (file.length) {
         result = csslint.verify(file, ruleset);
-        verbose.write(message);
-        if (result.messages.length) {
-          verbose.or.write(message);
-          grunt.log.error();
-        } else {
-          verbose.ok();
-        }
 
         // store combined result for later use with formatters
         combinedResult[filepath] = result;
 
-        result.messages.forEach(function(message) {
-          var offenderMessage;
-          if (message.line !== 'undefined') {
-            offenderMessage =
-              chalk.yellow('L' + message.line) +
-              chalk.red(':') +
-              chalk.yellow('C' + message.col);
-          } else {
-            offenderMessage = chalk.yellow('GENERAL');
-          }
-
-          if (!options.quiet && !options.quiet_all || options.quiet && message.type === 'error' && !options.quiet_all) {
-            grunt.log.writeln(chalk.red('[') + offenderMessage + chalk.red(']'));
-            grunt.log[ message.type === 'error' ? 'error' : 'writeln' ](
-              message.type.toUpperCase() + ': ' +
-              message.message + ' ' +
-              message.rule.desc +
-              ' (' + message.rule.id + ')' +
-              ' Browsers: ' + message.rule.browsers
-            );
-          }
-
-          if (message.type === 'error') {
-            hadErrors += 1;
-          }
+        hadErrors = result.messages.some(function(msg) {
+          return msg.type === "error";
         });
-      } else {
+
+        if (options.useBuiltInFormatter) {
+          verbose.write(message);
+
+          if (result.messages.length) {
+            verbose.or.write(message);
+            grunt.log.error();
+          } else {
+            verbose.ok();
+          }
+
+          result.messages.forEach(function(message) {
+            var offenderMessage;
+            if (!_.isUndefined(message.line)) {
+              offenderMessage =
+                chalk.yellow('L' + message.line) +
+                chalk.red(':') +
+                chalk.yellow('C' + message.col);
+            } else {
+              offenderMessage = chalk.yellow('GENERAL');
+            }
+
+            if (!options.quiet || options.quiet && message.type === 'error') {
+              grunt.log.writeln(chalk.red('[') + offenderMessage + chalk.red(']'));
+              grunt.log[ message.type === 'error' ? 'error' : 'writeln' ](
+                message.type.toUpperCase() + ': ' +
+                message.message + ' ' +
+                message.rule.desc +
+                ' (' + message.rule.id + ')' +
+                ' Browsers: ' + message.rule.browsers
+              );
+            }
+
+          });
+        }
+      } else if (options.useBuiltInFormatter) {
         grunt.log.writeln('Skipping empty file ' + chalk.cyan(filepath) + '.');
       }
 
@@ -108,8 +118,8 @@ module.exports = function(grunt) {
       options.formatters.forEach(function (formatterDefinition) {
         var formatterId = formatterDefinition.id;
 
-        if (formatterId && formatterDefinition.dest) {
-          if (!csslint.hasFormat(formatterId) && typeof formatterId === 'object') { // A custom formatter was supplied
+        if (formatterId) {
+          if (!csslint.hasFormat(formatterId) && _.isObject(formatterId)) { // A custom formatter was supplied
             csslint.addFormatter(formatterId);
 
             formatterId = formatterId.id;
@@ -125,7 +135,12 @@ module.exports = function(grunt) {
               output += formatter.formatResults(result, filename, {});
             });
             output += formatter.endFormat();
-            grunt.file.write(formatterDefinition.dest, output);
+
+            if (formatterDefinition.dest) {
+              grunt.file.write(formatterDefinition.dest, output);
+            } else {
+              grunt.log.writeln(output);
+            }
           }
         }
       });
